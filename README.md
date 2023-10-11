@@ -13,13 +13,13 @@ let retryStrategy = StandardRetryStrategy(tokenBucket: tokenBucket, delayProvide
 let retryer = StandardRetryer(tokenBucket: tokenBucket, delayProvider: delayProvider, retryStrategy: retryStrategy, partition: "foobar")
 
 let (data, _) = try await retryer.execute {
-let session = URLSession.shared
-let url = URL(string: "https://httpbin.org/get")!
-let (data, response) = try await session.data(from: url)
-let httpResponse = response as! HTTPURLResponse
-if httpResponse.statusCode != 200 {
-    throw HTTPError(response: httpResponse, error: nil)
-}
-return (data, response)
+    let session = URLSession.shared
+    let url = URL(string: "https://httpbin.org/get")!
+    let (data, response) = try await session.data(from: url)
+    let httpResponse = response as! HTTPURLResponse
+    if httpResponse.statusCode != 200 {
+        throw HTTPError(response: httpResponse, error: nil)
+    }
+    return (data, response)
 }
 ```
