@@ -4,7 +4,8 @@ import OSLog
 protocol RetryStrategy {
     func acquireInitialToken(partition: String) async throws -> RetryToken
     func recordSuccess(token: RetryToken)
-    mutating func refreshRetryToken(token: RetryToken, errorInfo: RetryErrorInfo) async throws -> RetryToken
+    func refreshRetryToken(token: RetryToken, errorInfo: RetryErrorInfo) async throws -> RetryToken
+    var maxAttempts: Int { get }
 }
 
 enum RetryErrorType: Error {
@@ -24,14 +25,17 @@ open class StandardRetryStrategy: RetryStrategy {
     let tokenBucket: RetryTokenBucket
     let delayProvider: DelayProvider
     let retryPolicies: [RetryPolicy]
+    let maxAttempts: Int
 
     init(
         tokenBucket: RetryTokenBucket,
-        delayProvider: DelayProvider) {
+        delayProvider: DelayProvider,
+        maxAttempts: Int) {
         self.tokenBucket = tokenBucket
         self.delayProvider = delayProvider
+        self.maxAttempts = maxAttempts
         self.retryPolicies = [
-            MaxAttemptPolicy(maxAttempts: 3),
+            MaxAttemptPolicy(maxAttempts: maxAttempts),
             ErrorTypePolicy(errorTypes: [.transient, .throttling])
         ]
     }

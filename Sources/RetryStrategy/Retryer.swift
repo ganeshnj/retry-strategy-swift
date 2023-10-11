@@ -2,34 +2,39 @@ import Foundation
 import OSLog
 
 protocol Retryer {
-    func execute<Result>(block: () async throws -> Result) async throws -> Result
+    func execute<Result>(block: (RetryInformation) async throws -> Result) async throws -> Result
+}
+
+struct RetryInformation {
+    let attempt: Int
+    let maxAttempts: Int
 }
 
 struct StandardRetryer: Retryer {
-    let tokenBucket: StandardRetryTokenBucket
-    let delayProvider: ExponentialBackoffWithJitter
-    let retryStrategy: StandardRetryStrategy
+    let tokenBucket: RetryTokenBucket
+    let delayProvider: DelayProvider
+    let retryStrategy: RetryStrategy
     let partition: String
     let logger = Logger(subsystem: "com.datadoghq.dd-sdk-ios", category: "StandardRetryer")
 
-    init(tokenBucket: StandardRetryTokenBucket,
-         delayProvider: ExponentialBackoffWithJitter,
-         retryStrategy: StandardRetryStrategy,
-         partiion: String) {
+    init(tokenBucket: RetryTokenBucket,
+         delayProvider: DelayProvider,
+         retryStrategy: RetryStrategy,
+         partition: String) {
         self.tokenBucket = tokenBucket
         self.delayProvider = delayProvider
         self.retryStrategy = retryStrategy
-        self.partition = partiion
+        self.partition = partition
     }
 
-    func execute<Result>(block: () async throws -> Result) async throws -> Result {
+    func execute<Result>(block: (RetryInformation) async throws -> Result) async throws -> Result {
         var retryToken = try await retryStrategy.acquireInitialToken(partition: partition)
         var attempts = 0
 
         while true {
             do {
                 logger.info("Executing block with retry count \(retryToken.attempt)")
-                let result = try await block()
+                let result = try await block(.init(attempt: retryToken.attempt, maxAttempts: retryStrategy.maxAttempts))
                 retryStrategy.recordSuccess(token: retryToken)
                 logger.info("Block executed successfully with retry count \(retryToken.attempt)")
                 return result
