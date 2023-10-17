@@ -25,7 +25,7 @@ struct ExponentialBackoffWithJitter: DelayProvider {
     }
 
     let configuration: Configuration
-    let logger = Logger(subsystem: "com.datadoghq.dd-sdk-ios", category: "StandardRetryStrategy")
+    let logger = Logger(subsystem: "com.datadoghq.dd-sdk-ios", category: "ExponentialBackoffWithJitter")
 
     init(configuration: Configuration) {
         self.configuration = configuration

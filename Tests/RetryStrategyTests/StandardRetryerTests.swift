@@ -21,10 +21,12 @@ final class StandardRetryerTests: XCTestCase {
     }
 
     func makeRequest(id: String) async throws {
-        let tokenBucket = StandardRetryTokenBucket(configuration: .init())
+        let timeSource = TestTimeSource()
+        let sleeper = TestSleeper(timeSource: timeSource)
+        let tokenBucket = StandardRetryTokenBucket(configuration: .init(), timeSource: timeSource, sleeper: sleeper)
         let delayProvider = ExponentialBackoffWithJitter(configuration: .init())
         let retryStrategy = StandardRetryStrategy(tokenBucket: tokenBucket, delayProvider: delayProvider, maxAttempts: 3)
-        let retryer = StandardRetryer(tokenBucket: tokenBucket, delayProvider: delayProvider, retryStrategy: retryStrategy, partition: id)
+        let retryer = StandardRetryer(tokenBucket: tokenBucket, delayProvider: delayProvider, retryStrategy: retryStrategy, sleeper: sleeper, partition: id)
 
 
         let (data, _) = try await retryer.execute { retryInfo in

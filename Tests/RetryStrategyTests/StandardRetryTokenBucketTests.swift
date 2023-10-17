@@ -4,40 +4,41 @@ import XCTest
 class StandardRetryTokenBucketTest: XCTestCase {
     func testWaitForCapacity() async throws {
         let timeSource = TestTimeSource()
-
-        let bucket = tokenBucket(initialTryCost: 10, timeSource: timeSource)
+        let sleeper = TestSleeper(timeSource: timeSource)
+        let bucket = tokenBucket(initialTryCost: 10, timeSource: timeSource, sleeper: sleeper)
 
         XCTAssertEqual(10, bucket.capacity)
 
-        var token = try await bucket.acquireToken()
+        _ = try await bucket.acquireToken()
         XCTAssertEqual(0, bucket.capacity)
-        XCTAssertEqual(0, token.delay)
+        XCTAssertEqual(0, timeSource.current)
 
         timeSource.current += 1
+        XCTAssertEqual(1, timeSource.current)
 
-        token = try await bucket.acquireToken()
+        _ = try await bucket.acquireToken()
         XCTAssertEqual(0, bucket.capacity)
-        XCTAssertEqual(0, token.delay)
     }
 
     func testReturnCapacityOnSuccess() async throws {
         let timeSource = TestTimeSource()
-
-        let bucket = tokenBucket(initialTryCost: 5, initialTrySuccessIncrement: 3, timeSource: timeSource)
+        let sleeper = TestSleeper(timeSource: timeSource)
+        let bucket = tokenBucket(initialTryCost: 5, initialTrySuccessIncrement: 3, timeSource: timeSource, sleeper: sleeper)
 
         XCTAssertEqual(10, bucket.capacity)
 
         let token = try await bucket.acquireToken()
-        XCTAssertEqual(5, bucket.capacity)
 
+        XCTAssertEqual(5, bucket.capacity)
+        
         bucket.returnToken(retryToken: token)
         XCTAssertEqual(8, bucket.capacity)
     }
 
     func testNoCapacityChangeOnFailure() async throws {
         let timeSource = TestTimeSource()
-
-        let bucket = tokenBucket(initialTryCost: 1, timeSource: timeSource)
+        let sleeper = TestSleeper(timeSource: timeSource)
+        let bucket = tokenBucket(initialTryCost: 1, timeSource: timeSource, sleeper: sleeper)
 
         XCTAssertEqual(10, bucket.capacity)
 
@@ -55,7 +56,8 @@ class StandardRetryTokenBucketTest: XCTestCase {
 
         for (errorType, cost) in costs {
             let timeSource = TestTimeSource()
-            let bucket = tokenBucket(timeSource: timeSource)
+            let sleeper = TestSleeper(timeSource: timeSource)
+            let bucket = tokenBucket(timeSource: timeSource, sleeper: sleeper)
             XCTAssertEqual(10, bucket.capacity)
 
             let token = try await bucket.acquireToken()
@@ -68,7 +70,8 @@ class StandardRetryTokenBucketTest: XCTestCase {
 
     func testRefillOverTime() async throws {
         let timeSource = TestTimeSource()
-        let bucket = tokenBucket(initialTryCost: 5, timeSource: timeSource)
+        let sleeper = TestSleeper(timeSource: timeSource)
+        let bucket = tokenBucket(initialTryCost: 5, timeSource: timeSource, sleeper: sleeper)
 
         XCTAssertEqual(10, bucket.capacity)
 
@@ -84,8 +87,8 @@ class StandardRetryTokenBucketTest: XCTestCase {
 
     func testCircuitBreakerMode() async throws {
         let timeSource = TestTimeSource()
-
-        let bucket = tokenBucket(useCircuitBreakerMode: true, initialTryCost: 10, timeSource: timeSource)
+        let sleeper = TestSleeper(timeSource: timeSource)
+        let bucket = tokenBucket(useCircuitBreakerMode: true, initialTryCost: 10, timeSource: timeSource, sleeper: sleeper)
 
         XCTAssertEqual(10, bucket.capacity)
 
@@ -104,7 +107,8 @@ class StandardRetryTokenBucketTest: XCTestCase {
         refillUnitsPerSecond: Int = 10,
         retryCost: Int = 2,
         timeoutRetryCost: Int = 3,
-        timeSource: TimeSource
+        timeSource: TimeSource,
+        sleeper: Sleeper
     ) -> StandardRetryTokenBucket {
         let configuration = StandardRetryTokenBucket.Configuration(
             initialRetryCost: initialTryCost,
@@ -112,11 +116,10 @@ class StandardRetryTokenBucketTest: XCTestCase {
             maxCapacity: maxCapacity,
             retryCost: retryCost,
             timeoutRetryCost: timeoutRetryCost,
-            timeSource: timeSource,
             refillUnitsPerSecond: refillUnitsPerSecond,
             useCircuitBreaker: useCircuitBreakerMode
         )
-        return StandardRetryTokenBucket(configuration: configuration)
+        return StandardRetryTokenBucket(configuration: configuration, timeSource: timeSource, sleeper: sleeper)
     }
 
 }
@@ -145,6 +148,18 @@ class TestTimeSource: TimeSource {
     }
     func now() -> TimeInterval {
         return current
+    }
+}
+
+class TestSleeper: Sleeper {
+    var timeSource: TestTimeSource
+
+    init(timeSource: TestTimeSource) {
+        self.timeSource = timeSource
+    }
+
+    func sleep(seconds: TimeInterval) async {
+        timeSource.current += seconds
     }
 }
 

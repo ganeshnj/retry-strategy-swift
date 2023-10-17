@@ -20,7 +20,6 @@ class StandardRetryTokenBucket: RetryTokenBucket {
         let maxCapacity: Int
         let retryCost: Int
         let timeoutRetryCost: Int
-        let timeSource: TimeSource
         var refillUnitsPerSecond: Int  {
             willSet {
                 if newValue == 0 {
@@ -36,7 +35,6 @@ class StandardRetryTokenBucket: RetryTokenBucket {
             maxCapacity: Int = 500,
             retryCost: Int = 5,
             timeoutRetryCost: Int = 10,
-            timeSource: TimeSource = SystemTimeSource(),
             refillUnitsPerSecond: Int = 10,
             useCircuitBreaker: Bool = true
         ) {
@@ -45,7 +43,6 @@ class StandardRetryTokenBucket: RetryTokenBucket {
             self.maxCapacity = maxCapacity
             self.retryCost = retryCost
             self.timeoutRetryCost = timeoutRetryCost
-            self.timeSource = timeSource
             self.refillUnitsPerSecond = refillUnitsPerSecond
             self.useCircuitBreaker = useCircuitBreaker
         }
@@ -53,20 +50,23 @@ class StandardRetryTokenBucket: RetryTokenBucket {
 
     let logger = Logger(subsystem: "com.datadoghq.dd-sdk-ios", category: "StandardRetryTokenBucket")
     let configuration: Configuration
+    let timeSource: TimeSource
+    let sleeper: Sleeper
     var lastTimeMark: TimeInterval = 0.0
     var capacity: Int = 0
 
-    init(configuration: Configuration) {
+    init(configuration: Configuration, timeSource: TimeSource, sleeper: Sleeper) {
         self.configuration = configuration
-        self.lastTimeMark = configuration.timeSource.now()
+        self.timeSource = timeSource
+        self.lastTimeMark = timeSource.now()
+        self.sleeper = sleeper
         self.capacity = configuration.maxCapacity
     }
 
     func acquireToken() async throws -> RetryToken {
         logger.info("Acquiring initial token")
-        let delayDuration = try await checkoutCapacity(size: configuration.initialRetryCost)
+        try await checkoutCapacity(size: configuration.initialRetryCost)
         return RetryToken(
-            delay: delayDuration,
             attempt: 0,
             size: configuration.initialRetrySuccessIncrement
         )
@@ -81,9 +81,9 @@ class StandardRetryTokenBucket: RetryTokenBucket {
             configuration.retryCost
         }
 
-        let delayDuration = try await checkoutCapacity(size: size)
+        try await checkoutCapacity(size: size)
+
         return RetryToken(
-            delay: delayDuration,
             attempt: retryToken.attempt + 1,
             size: size
         )
@@ -97,14 +97,12 @@ class StandardRetryTokenBucket: RetryTokenBucket {
         refillCapacity()
 
         capacity = min(configuration.maxCapacity, capacity + size)
-        lastTimeMark = configuration.timeSource.now()
+        lastTimeMark = timeSource.now()
     }
 
-    func checkoutCapacity(size: Int) async throws -> TimeInterval {
+    func checkoutCapacity(size: Int) async throws {
         logger.info("Checking out capacity of size \(size)")
         refillCapacity()
-
-        var delayDuration: TimeInterval = 0.0
 
         if size <= capacity {
             logger.info("Capacity available, checking out \(size) units")
@@ -116,17 +114,17 @@ class StandardRetryTokenBucket: RetryTokenBucket {
             }
 
             let extraRequiredCapacity = size - capacity
-            delayDuration = ceil(Double(extraRequiredCapacity/configuration.refillUnitsPerSecond))
+            let delayDuration = ceil(Double(extraRequiredCapacity/configuration.refillUnitsPerSecond))
             capacity = 0
             logger.info("Capacity unavailable, delay for \(delayDuration) seconds")
+            try await sleeper.sleep(seconds: delayDuration)
         }
 
-        lastTimeMark = configuration.timeSource.now()
-        return delayDuration
+        lastTimeMark = timeSource.now()
     }
 
     func refillCapacity() {
-        let refillSeconds = configuration.timeSource.now() - lastTimeMark
+        let refillSeconds = timeSource.now() - lastTimeMark
         let refillSize = Int(floor(Double(configuration.refillUnitsPerSecond) * refillSeconds))
         logger.info("Refilling capacity by \(refillSize) units")
         capacity = min(configuration.maxCapacity, capacity + refillSize)
@@ -135,4 +133,8 @@ class StandardRetryTokenBucket: RetryTokenBucket {
 
 protocol TimeSource {
     func now() -> TimeInterval
+}
+
+protocol Sleeper {
+    func sleep(seconds: TimeInterval) async throws
 }
