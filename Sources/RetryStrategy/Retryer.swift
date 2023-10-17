@@ -14,23 +14,26 @@ struct StandardRetryer: Retryer {
     let tokenBucket: RetryTokenBucket
     let delayProvider: DelayProvider
     let retryStrategy: RetryStrategy
+    let errorInfoProvider: ErrorInfoProvider
     let partition: String
     let logger = Logger(subsystem: "com.datadoghq.dd-sdk-ios", category: "StandardRetryer")
 
     init(tokenBucket: RetryTokenBucket,
          delayProvider: DelayProvider,
          retryStrategy: RetryStrategy,
+         errorInfoProvider: ErrorInfoProvider = StandardErrorInfoProvider(),
          partition: String) {
         self.tokenBucket = tokenBucket
         self.delayProvider = delayProvider
         self.retryStrategy = retryStrategy
         self.partition = partition
+        self.errorInfoProvider = errorInfoProvider
     }
 
     func execute<Result>(block: (RetryInformation) async throws -> Result) async throws -> Result {
         var retryToken = try await retryStrategy.acquireInitialToken(partition: partition)
         var attempts = 0
-
+        
         while true {
             do {
                 logger.info("Executing block with retry count \(retryToken.attempt)")
@@ -40,7 +43,7 @@ struct StandardRetryer: Retryer {
                 return result
             } catch let httpError as HTTPError {
                 logger.error("Block failed with error \(httpError.error) and response \(httpError.response)")
-                guard let retryErrorInfo = errorInfo(response: httpError.response, error: httpError) else {
+                guard let retryErrorInfo = errorInfoProvider.errorInfo(response: httpError.response, error: httpError) else {
                     throw httpError
                 }
                 attempts += 1
@@ -56,60 +59,6 @@ struct StandardRetryer: Retryer {
                 try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
             }
         }
-    }
-
-    func errorType(response: HTTPURLResponse, error: Error) -> RetryErrorType {
-        if isThrottlingError(response: response, error: error) {
-            return .throttling
-        }
-
-        if isTransientError(response: response, error: error) {
-            return .transient
-        }
-
-        if isServerError(response: response, error: error) {
-            return .server
-        }
-
-        return .client
-    }
-
-    func isClockSkewError(response: HTTPURLResponse, erorr: Error) -> Bool {
-        return false
-    }
-
-    func isTransientError(response: HTTPURLResponse, error: Error) -> Bool {
-        switch response.statusCode {
-            case 500, 502, 503, 504:
-                return true
-            default:
-                return false
-        }
-    }
-
-    func isServerError(response: HTTPURLResponse, error: Error) -> Bool {
-        if response.statusCode >= 500
-            && response.statusCode < 600 && !isTransientError(response: response, error: error) {
-            return true
-        }
-        return false
-    }
-
-    func isThrottlingError(response: HTTPURLResponse, error: Error) -> Bool {
-        response.statusCode == 429
-    }
-
-    func errorInfo(response: HTTPURLResponse?, error: Error) -> RetryErrorInfo? {
-        guard let response = response else {
-            return nil
-        }
-        let retryAfter = retryAfterHint(response: response)
-        let errorType = errorType(response: response, error: error)
-        return RetryErrorInfo(errorType: errorType, retryAfterHint: retryAfter)
-    }
-
-    func retryAfterHint(response: HTTPURLResponse) -> TimeInterval {
-        response.allHeaderFields["Retry-After"] as? TimeInterval ?? 0
     }
 }
 
