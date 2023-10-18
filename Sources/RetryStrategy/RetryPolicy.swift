@@ -1,22 +1,14 @@
 import Foundation
 import OSLog
 
+/// Protocol which inspects the response and error, and returns a RetryErrorInfo if the request should be retried.
 protocol RetryPolicy {
+    /// Evaluates whether the request should be retried.
+    /// - Parameters:
+    ///   - token: The RetryToken used to make the request.
+    ///   - errorInfo: The RetryErrorInfo returned by the request.
+    /// - Returns: true if the request should be retried, false otherwise.
     func retry(token: RetryToken, errorInfo: RetryErrorInfo) -> Bool
-}
-
-struct MaxAttemptPolicy: RetryPolicy {
-    let maxAttempts: Int
-    let logger = Logger(subsystem: "com.datadoghq.dd-sdk-ios", category: "MaxAttemptPolicy")
-
-    init(maxAttempts: Int) {
-        self.maxAttempts = maxAttempts
-    }
-
-    func retry(token: RetryToken, errorInfo: RetryErrorInfo) -> Bool {
-        logger.info("Checking if retry count \(token.attempt) is less than max attempts \(maxAttempts)")
-        return token.attempt < maxAttempts
-    }
 }
 
 struct ErrorTypePolicy: RetryPolicy {

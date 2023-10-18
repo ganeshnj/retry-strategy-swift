@@ -7,19 +7,44 @@ class SystemTimeSource: TimeSource {
     }
 }
 
+/// Protocol which is used to handle client side rate limiting.
 protocol RetryTokenBucket {
+    /// Acquires a RetryToken to use for a request. This method should be called before the first attempt for a code block
+    /// This method may delay the execution of the code block if there is insufficient capacity.
+    /// - Returns: A RetryToken to use for the request.
     func acquireToken() async throws -> RetryToken
+
+    /// Acquires a RetryToken to use for a request. This method should be called after a failed attempt for a code block.
+    /// This method may delay the execution of the code block if there is insufficient capacity.
+    /// - Parameters:
+    ///   - retryToken: The RetryToken used for the previous attempt.
+    ///   - retryError: The RetryErrorType returned by the previous attempt.
+    /// - Returns: A RetryToken to use for the request.
     func acquireToken(retryToken: RetryToken, retryError: RetryErrorType) async throws -> RetryToken
+
+    /// Returns a RetryToken to the bucket. This method should be called after a successful attempt for a code block.
+    /// - Parameter retryToken: The RetryToken used for the previous attempt.
     func returnToken(retryToken: RetryToken)
 }
 
 class StandardRetryTokenBucket: RetryTokenBucket {
     struct Configuration {
+        /// The cost to deduct for the first attempt.
         let initialRetryCost: Int
+
+        /// The number of units to increment the bucket by after a successful attempt.
         let initialRetrySuccessIncrement: Int
+
+        /// The maximum number of units the bucket can hold.
         let maxCapacity: Int
+
+        /// The cost to deduct for standard errors.
         let retryCost: Int
+
+        /// The cost of a timeout or throttling error.
         let timeoutRetryCost: Int
+
+        /// The number of units to refill the bucket with per second.
         var refillUnitsPerSecond: Int  {
             willSet {
                 if newValue == 0 {
@@ -27,6 +52,10 @@ class StandardRetryTokenBucket: RetryTokenBucket {
                 }
             }
         }
+
+        /// If true, the token bucket will throw an error if the capacity has been depleted.
+        /// When false, the token bucket will delay the execution of the code block until the capacity has been refilled.
+        /// It will automatically switch to true if refillUnitsPerSecond is set to 0.
         var useCircuitBreaker: Bool
 
         init(

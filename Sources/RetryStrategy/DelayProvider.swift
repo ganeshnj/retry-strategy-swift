@@ -1,7 +1,11 @@
 import Foundation
 import OSLog
 
+/// Protocol which provides a delay between invocations of a code block.
 protocol DelayProvider {
+    /// Returns the delay to wait before the next invocation of a code block.
+    /// - Parameter attempt: The number of times the code block has been invoked.
+    /// - Returns: The delay to wait before the next invocation of a code block.
     func backoff(attempt: Int) async throws -> TimeInterval
 }
 

@@ -1,22 +1,49 @@
 import Foundation
 import OSLog
 
+/// Protocol which is responsible for handling the retry logic.
 protocol RetryStrategy {
-    func acquireInitialToken(partition: String) async throws -> RetryToken
+    /// Acquires a RetryToken to use for a request.
+    /// This method should be called before the first attempt for a code block
+    /// - Returns: A RetryToken to use for the request.
+    func acquireInitialToken() async throws -> RetryToken
+
+    /// Records a successful attempt for a code block.
+    /// This method should be called after a successful attempt for a code block.
+    /// - Parameter token: The RetryToken used for the previous attempt.
     func recordSuccess(token: RetryToken)
+
+    /// Refreshes a RetryToken to use for a request.
+    /// - Parameters:
+    ///   - token: The RetryToken used for the previous attempt.
+    ///   - errorInfo: The RetryErrorInfo returned by the previous attempt.
+    /// - Returns: A RetryToken to use for the request.
     func refreshRetryToken(token: RetryToken, errorInfo: RetryErrorInfo) async throws -> RetryToken
-    var maxAttempts: Int { get }
 }
 
+/// A type of error that may be retried.
 enum RetryErrorType: Error {
+    /// A connection level error such as a timeout or a connection failure.
+    /// These errors can be retried for non-idempotent requests.
     case transient
+
+    /// A server-indicated throttling error.
     case throttling
+
+    /// A general server error.
     case server
+
+    /// A general client error.
     case client
 }
 
+/// Information about the error that occurred.
 struct RetryErrorInfo {
+    /// The type of error that occurred.
     let errorType: RetryErrorType
+
+    /// The number of seconds to wait before retrying the request.
+    /// Usually indicated by the `Retry-After` header in the response.
     let retryAfterHint: TimeInterval?
 }
 
@@ -33,13 +60,12 @@ open class StandardRetryStrategy: RetryStrategy {
         self.tokenBucket = tokenBucket
         self.maxAttempts = maxAttempts
         self.retryPolicies = [
-            MaxAttemptPolicy(maxAttempts: maxAttempts),
             ErrorTypePolicy(errorTypes: [.transient, .throttling])
         ]
     }
 
-    func acquireInitialToken(partition: String) async throws -> RetryToken {
-        logger.info("Acquiring initial token with partition \(partition)")
+    func acquireInitialToken() async throws -> RetryToken {
+        logger.info("Acquiring initial token")
         return try await tokenBucket.acquireToken()
     }
 

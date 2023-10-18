@@ -1,13 +1,19 @@
 //
 //  File.swift
-//  
+//
 //
 //  Created by Ganesh Jangir on 17/10/2023.
 //
 import Foundation
 import OSLog
 
+/// Protocol which inspects the response and error, and returns a RetryErrorInfo if the request should be retried.
 protocol ErrorInfoProvider {
+    /// Returns a RetryErrorInfo to determine how to retry the request.
+    /// - Parameters:
+    ///   - response: The HTTPURLResponse returned by the request.
+    ///   - error: The error returned by the request.
+    /// - Returns: A RetryErrorInfo to determine how to retry the request. If nil, the request should not be retried.
     func errorInfo(response: HTTPURLResponse?, error: Error) -> RetryErrorInfo?
 }
 
